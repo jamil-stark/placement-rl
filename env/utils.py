@@ -1,6 +1,7 @@
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import pickle
 import os
 import random
@@ -46,6 +47,248 @@ def visualize_dag(G, widths, height):
     plt.show()
 
     return
+
+
+def visualize_task_power_consumption(cur_mapping, device_frequencies, adjusted_frequencies, device_voltages, adjusted_voltages):
+    tasks = list(range(len(cur_mapping)))
+    adjusted_frequencies = [freq if freq is not None else 0 for freq in adjusted_frequencies]
+    adjusted_voltages = [volt if volt is not None else 0 for volt in adjusted_voltages]
+
+    plt.figure(figsize=(12, 6))
+    plt.bar(tasks, device_frequencies, color='orange', label='Device Frequency')
+    plt.bar(tasks, adjusted_frequencies, color='blue', alpha=0.6, label='Adjusted Frequency')
+    plt.plot(tasks, device_voltages, color='red', marker='o', label='Device Voltage', linestyle='-', linewidth=2)
+    plt.plot(tasks, adjusted_voltages, color='green', marker='o', label='Adjusted Voltage', linestyle='-', linewidth=2)
+
+    for i in range(len(tasks)):
+            plt.text(i, max(device_frequencies[i], adjusted_frequencies[i]) - 20, f"dev{cur_mapping[i]}", ha='center', fontsize=8, color='white')
+
+
+    plt.xlabel('Task')
+    plt.ylabel('Frequency / Voltage')
+    plt.title('Frequency and Voltage Devices Use When Running Tasks Compared To Their Default Settings')
+    plt.xticks(tasks, [f"Task {task}" for task in tasks])
+    plt.legend()
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+
+    plt.tight_layout()
+    plt.show()
+
+def visualize_task_power_consumption_with_connectivity(cur_mapping, device_frequencies, adjusted_frequencies, device_voltages, adjusted_voltages, task_edges):
+    tasks = list(range(len(cur_mapping)))
+    adjusted_frequencies = [freq if freq is not None else 0 for freq in adjusted_frequencies]
+    adjusted_voltages = [volt if volt is not None else 0 for volt in adjusted_voltages]
+
+    plt.figure(figsize=(12, 6))
+    
+    plt.bar(tasks, device_frequencies, color='orange', label='Device Frequency')
+    plt.bar(tasks, adjusted_frequencies, color='blue', alpha=0.6, label='Adjusted Frequency')
+    plt.plot(tasks, device_voltages, color='red', marker='o', label='Device Voltage', linestyle='-', linewidth=2)
+    plt.plot(tasks, adjusted_voltages, color='green', marker='o', label='Adjusted Voltage', linestyle='-', linewidth=2)
+
+    for i in range(len(tasks)):
+        plt.text(i, max(device_frequencies[i], adjusted_frequencies[i]) - 20, f"dev{cur_mapping[i]}", ha='center', fontsize=8, color='white')
+
+    for edge in task_edges:
+        task_from, task_to = edge
+        plt.plot([task_from, task_to], [device_frequencies[task_from], device_frequencies[task_to]], color='black', linestyle='--', alpha=0.5)
+
+    plt.xlabel('Task')
+    plt.ylabel('Frequency / Voltage')
+    plt.title('Frequency and Voltage Devices Use When Running Tasks Compared To Their Default Settings')
+    plt.xticks(tasks, [f"Task {task}" for task in tasks])
+    plt.legend()
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+
+    plt.tight_layout()
+    plt.show()
+
+
+def visualize_task_power_consumption_with_dag(G, cur_mapping, device_frequencies, adjusted_frequencies, device_voltages, adjusted_voltages, vmin, vmax, evmin, evmax, name, width):
+    tasks = list(range(len(cur_mapping)))
+    adjusted_frequencies = [freq if freq is not None else 0 for freq in adjusted_frequencies]
+    adjusted_voltages = [volt if volt is not None else 0 for volt in adjusted_voltages]
+    
+    for i, task in enumerate(tasks):
+        G.nodes[task]['frequency'] = device_frequencies[i]
+        G.nodes[task]['adjusted_frequency'] = adjusted_frequencies[i]
+        G.nodes[task]['voltage'] = device_voltages[i]
+        G.nodes[task]['adjusted_voltage'] = adjusted_voltages[i]
+    
+    P = G.copy()
+    for n in nx.topological_sort(P):
+        if P.in_degree(n) == 0:
+            P.nodes[n]['level'] = 0
+        else:
+            P.nodes[n]['level'] = max([P.nodes[v]['level'] for v in P.predecessors(n)]) + 1
+    
+    pos = nx.multipartite_layout(P, subset_key='level')
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(width, 7), gridspec_kw={'width_ratios': [2, 3]})
+    
+    ax1.bar(tasks, device_frequencies, color='orange', label='Device Frequency')
+    ax1.bar(tasks, adjusted_frequencies, color='blue', alpha=0.6, label='Adjusted Frequency')
+    ax1.plot(tasks, device_voltages, color='red', marker='o', label='Device Voltage', linestyle='-', linewidth=2)
+    ax1.plot(tasks, adjusted_voltages, color='green', marker='o', label='Adjusted Voltage', linestyle='-', linewidth=2)
+
+    for i in range(len(tasks)):
+        ax1.text(i, max(device_frequencies[i], adjusted_frequencies[i]) - 20, f"dev{cur_mapping[i]}", ha='center', fontsize=8, color='white')
+    
+    ax1.set_xlabel('Task')
+    ax1.set_ylabel('Frequency / Voltage')
+    ax1.set_title('Frequency and Voltage Devices Use When Running Tasks Compared To Their Default Settings')
+    ax1.set_xticks(tasks)
+    ax1.set_xticklabels([f"V{task}" for task in tasks])
+    ax1.legend()
+    ax1.grid(axis='y', linestyle='--', alpha=0.7)
+
+    node_colors = [G.nodes[n]['frequency'] for n in G.nodes()]
+    edge_colors = [G.edges[e]['bytes'] if 'bytes' in G.edges[e] else 0 for e in G.edges()]
+    edge_widths = [G.edges[e]['bytes'] / max(edge_colors) * 2 if 'bytes' in G.edges[e] else 1 for e in G.edges()]
+
+    nx.draw_networkx_nodes(P, pos, node_color=node_colors, cmap=plt.cm.bwr, vmin=vmin, vmax=vmax, node_size=300, ax=ax2)
+    nx.draw_networkx_edges(P, pos, edgelist=G.edges(), width=edge_widths, edge_color=edge_colors, edge_cmap=plt.cm.Blues, edge_vmin=evmin, edge_vmax=evmax, ax=ax2)
+    
+    nx.draw_networkx_labels(P, pos, labels={n: f"V{n}" for n in G.nodes()}, font_size=12, ax=ax2)
+    
+    cb1 = plt.colorbar(mpl.cm.ScalarMappable(cmap=plt.cm.bwr, norm=mpl.colors.Normalize(vmin=vmin, vmax=vmax)), ax=ax2, shrink=0.75)
+    cb1.set_label('Task Compute Requirement', size=13)
+    cb2 = plt.colorbar(mpl.cm.ScalarMappable(cmap=plt.cm.Blues, norm=mpl.colors.Normalize(vmin=evmin, vmax=evmax)), ax=ax2, shrink=0.75)
+    cb2.set_label('Data Transmission (bytes)', size=13)
+
+    ax2.set_title(f"Task Connectivity (Graph)")
+    ax2.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+
+
+def visualize_task_power_consumption_with_arrows_and_colorbar(G, cur_mapping, device_frequencies, adjusted_frequencies, device_voltages, adjusted_voltages, vmin, vmax, evmin, evmax, name, width):
+    tasks = list(range(len(cur_mapping)))
+    adjusted_frequencies = [freq if freq is not None else 0 for freq in adjusted_frequencies]
+    adjusted_voltages = [volt if volt is not None else 0 for volt in adjusted_voltages]
+    
+    fig, ax1 = plt.subplots(figsize=(width, 7))
+    
+    ax1.bar(tasks, device_frequencies, color='orange', label='Device Frequency')
+    ax1.bar(tasks, adjusted_frequencies, color='blue', alpha=0.6, label='Adjusted Frequency')
+    ax1.plot(tasks, device_voltages, color='red', marker='o', label='Device Voltage', linestyle='-', linewidth=2)
+    ax1.plot(tasks, adjusted_voltages, color='green', marker='o', label='Adjusted Voltage', linestyle='-', linewidth=2)
+
+    for i in range(len(tasks)):
+        ax1.text(i, max(device_frequencies[i], adjusted_frequencies[i]) - 20, f"dev{cur_mapping[i]}", ha='center', fontsize=8, color='white')
+    
+    ax1.set_xlabel('Task')
+    ax1.set_ylabel('Frequency / Voltage')
+    ax1.set_title('Frequency and Voltage Devices Use When Running Tasks Compared To Their Default Settings')
+    ax1.set_xticks(tasks)
+    ax1.set_xticklabels([f"V{task}" for task in tasks])
+    ax1.legend()
+    ax1.grid(axis='y', linestyle='--', alpha=0.7)
+
+    for u, v in G.edges():
+        bytes_value = G.edges[u, v]['bytes'] if 'bytes' in G.edges[u, v] else 0
+        if bytes_value > 0:
+            x_start = u
+            x_end = v  
+            y_start = max(device_frequencies[u], adjusted_frequencies[u]) + 5 
+            y_end = max(device_frequencies[v], adjusted_frequencies[v]) + 5   
+            arrow_color = plt.cm.Blues(bytes_value / max(evmax, 1))  
+            ax1.annotate('', xy=(x_end, y_end), xytext=(x_start, y_start), arrowprops=dict(facecolor=arrow_color, edgecolor='black', arrowstyle='->', lw=1.5))
+    
+    # cb2 = plt.colorbar(mpl.cm.ScalarMappable(cmap=plt.cm.Blues, norm=mpl.colors.Normalize(vmin=evmin, vmax=evmax)), ax=ax1, shrink=0.75)
+    # cb2.set_label('Data Transmission (bytes)', size=13)
+
+    ax1.text(0.95, 0.05, 'Arrows represent data communication', ha='right', va='bottom', transform=ax1.transAxes, fontsize=12, color='black', bbox=dict(facecolor='white', alpha=0.7, edgecolor='black', boxstyle='round,pad=0.5'))
+
+    plt.tight_layout()
+    plt.show()
+
+
+def visualize_task_power_consumption_with_arrows_and_colorbar1(G, cur_mapping, device_frequencies, adjusted_frequencies, device_voltages, adjusted_voltages, vmin, vmax, evmin, evmax, name, width):
+    tasks = list(range(len(cur_mapping)))
+    adjusted_frequencies = [freq if freq is not None else 0 for freq in adjusted_frequencies]
+    adjusted_voltages = [volt if volt is not None else 0 for volt in adjusted_voltages]
+    
+    fig, ax1 = plt.subplots(figsize=(width, 7))
+    
+    ax1.bar(tasks, device_frequencies, color='orange', label='Device Frequency')
+    ax1.bar(tasks, adjusted_frequencies, color='blue', alpha=0.6, label='Adjusted Frequency')
+    ax1.plot(tasks, device_voltages, color='red', marker='o', label='Device Voltage', linestyle='-', linewidth=2)
+    ax1.plot(tasks, adjusted_voltages, color='green', marker='o', label='Adjusted Voltage', linestyle='-', linewidth=2)
+
+    for i in range(len(tasks)):
+        ax1.text(i, max(device_frequencies[i], adjusted_frequencies[i]) - 20, f"dev{cur_mapping[i]}", ha='center', fontsize=8, color='white')
+    
+    ax1.set_xlabel('Task')
+    ax1.set_ylabel('Frequency / Voltage')
+    ax1.set_title('Frequency and Voltage Devices Use When Running Tasks Compared To Their Default Settings')
+    ax1.set_xticks(tasks)
+    ax1.set_xticklabels([f"V{task}" for task in tasks])
+    ax1.legend()
+    ax1.grid(axis='y', linestyle='--', alpha=0.7)
+
+    for u, v in G.edges():
+        bytes_value = G.edges[u, v]['bytes'] if 'bytes' in G.edges[u, v] else 0
+        if bytes_value > 0:
+            x_start = u  
+            x_end = v    
+            y_start = max(device_frequencies[u], adjusted_frequencies[u]) + 5  
+            y_end = max(device_frequencies[v], adjusted_frequencies[v]) + 5      
+            normalized_bytes = (bytes_value - evmin) / (evmax - evmin) if evmax != evmin else 0
+            arrow_color = plt.cm.Blues(normalized_bytes)  
+            ax1.annotate('', xy=(x_end, y_end), xytext=(x_start, y_start), 
+                         arrowprops=dict(facecolor=arrow_color, edgecolor='black', arrowstyle='->', lw=1.5))
+    
+    
+    cb2 = plt.colorbar(mpl.cm.ScalarMappable(cmap=plt.cm.Blues, norm=mpl.colors.Normalize(vmin=evmin, vmax=evmax)), ax=ax1, shrink=0.75)
+    cb2.set_label('Data Transmission (bytes)', size=13)
+
+    ax1.text(0.95, 0.05, 'Arrows represent data communication (bytes)', ha='right', va='bottom', transform=ax1.transAxes, fontsize=12, color='black', bbox=dict(facecolor='white', alpha=0.7, edgecolor='black', boxstyle='round,pad=0.5'))
+
+    plt.tight_layout()
+    plt.show()
+
+
+def visualize_task_power_consumption_with_arrows(G, cur_mapping, device_frequencies, adjusted_frequencies, device_voltages, adjusted_voltages, vmin, vmax, evmin, evmax, name, width):
+    tasks = list(range(len(cur_mapping)))
+    adjusted_frequencies = [freq if freq is not None else 0 for freq in adjusted_frequencies]
+    adjusted_voltages = [volt if volt is not None else 0 for volt in adjusted_voltages]
+    
+    fig, ax1 = plt.subplots(figsize=(width, 7))
+    
+    ax1.bar(tasks, device_frequencies, color='orange', label='Device Frequency')
+    ax1.bar(tasks, adjusted_frequencies, color='blue', alpha=0.6, label='Adjusted Frequency')
+    ax1.plot(tasks, device_voltages, color='red', marker='o', label='Device Voltage', linestyle='-', linewidth=2)
+    ax1.plot(tasks, adjusted_voltages, color='green', marker='o', label='Adjusted Voltage', linestyle='-', linewidth=2)
+
+    for i in range(len(tasks)):
+        ax1.text(i, max(device_frequencies[i], adjusted_frequencies[i]) - 20, f"dev{cur_mapping[i]}", ha='center', fontsize=8, color='white')
+    
+    ax1.set_xlabel('Task')
+    ax1.set_ylabel('Frequency / Voltage')
+    ax1.set_title('Frequency and Voltage Devices Use When Running Tasks Compared To Their Default Settings')
+    ax1.set_xticks(tasks)
+    ax1.set_xticklabels([f"V{task}" for task in tasks])
+    ax1.legend()
+    ax1.grid(axis='y', linestyle='--', alpha=0.7)
+
+    for u, v in G.edges():
+        bytes_value = G.edges[u, v]['bytes'] if 'bytes' in G.edges[u, v] else 0
+        if bytes_value > 0:
+            x_start = u  
+            x_end = v    
+            y_start = max(device_frequencies[u], adjusted_frequencies[u]) + 5  
+            y_end = max(device_frequencies[v], adjusted_frequencies[v]) + 5      
+            arrow_color = plt.cm.Blues(bytes_value / max(evmax, 1))  
+            ax1.annotate('', xy=(x_end, y_end), xytext=(x_start, y_start), arrowprops=dict(facecolor=arrow_color, edgecolor='black', arrowstyle='->', lw=1.5))
+            
+            ax1.text((x_start + x_end) / 2, (y_start + y_end) / 2, f"{bytes_value}", color='black', fontsize=10, ha='center')
+
+    plt.tight_layout()
+    plt.show()
+
 
 def graph_dag_structure(v,
                         alpha,
@@ -123,6 +366,8 @@ def generate_graph(alpha,
     for n in G.nodes:
         G.nodes[n]['compute'] = np.random.uniform(avg_compute * (1 - b_comp / 2), avg_compute * (1 + b_comp / 2))
         G.nodes[n]['h_constraint'] = np.random.choice(range(num_types))
+        G.nodes[n]['h_frequency'] = np.random.uniform(10, 30)
+        G.nodes[n]['h_voltage'] = np.random.uniform(5, 35)
 
     # Communication requirement (bytes) for each dag edge
     for edge in G.edges:
@@ -168,6 +413,8 @@ def generate_network(n_devices,
     speed = np.random.uniform(avg_speed * (1 - b_speed / 2), avg_speed * (1 + b_speed / 2), n_devices)
 
     device_constraints = {}
+    device_frequencies = {}
+    device_voltages = {}
 
     for i in range(n_devices):
         device_constraints[i] = []
@@ -181,12 +428,18 @@ def generate_network(n_devices,
         dev_set = np.random.choice(n_devices, int(n_devices * type_prob), replace=False).tolist()
         for d in dev_set:
             device_constraints[d].append(t)
+    
+    for i in range(n_devices):
+        device_frequencies[i] = np.random.choice(range(30, 120))
+        device_voltages[i] = np.random.uniform(35, 55)
 
     network = {}
     network["delay"] = delay
     network["comm_speed"] = comm_speed
     network["speed"] = speed
     network["device_constraints"] = device_constraints
+    network["device_frequencies"] = device_frequencies
+    network["device_voltages"] = device_voltages
     network['para'] = {}
 
     network['para']['n_devices'] = n_devices

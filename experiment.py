@@ -20,6 +20,55 @@ from placement_rl.placeto_agent import PlaceToAgent
 import os
 import pickle
 
+
+def calculate_adjusted_frequencies(action_dict, curr_mapping):
+    adjusted_frequencies = []
+    
+    for task_idx, device in enumerate(curr_mapping):
+        for key, (task, dev, adj_freq, adj_volt) in action_dict.items():
+            if task == task_idx and dev == device:
+                adjusted_frequencies.append(adj_freq)
+                break
+        else:
+            adjusted_frequencies.append(None)
+
+    return adjusted_frequencies
+
+def calculate_adjusted_voltages(action_dict, curr_mapping):
+    adjusted_voltages = []
+
+    for task_idx, device in enumerate(curr_mapping):
+        for key, (task, dev, adj_freq, adj_volt) in action_dict.items():
+            if task == task_idx and dev == device:
+                adjusted_voltages.append(adj_volt)
+                break
+        else:
+            adjusted_voltages.append(None)
+    
+    return adjusted_voltages
+
+def plot_task_frequencies(tasks, device_frequencies, adjusted_frequencies):
+    adjusted_frequencies = [freq if freq is not None else 0 for freq in adjusted_frequencies]
+    
+    x = np.arange(len(tasks))
+
+    plt.figure(figsize=(12, 6))
+    bar_width = 0.4
+
+    plt.bar(x - bar_width / 2, device_frequencies, bar_width, label='Device Frequencies', color='red')
+
+    plt.bar(x + bar_width / 2, adjusted_frequencies, bar_width, label='Device Adjusted Frequencies', color='green')
+
+    plt.xlabel('Tasks')
+    plt.ylabel('Frequencies in GHz')
+    plt.title('Device vs Adjusted Frequencies for Tasks')
+    plt.xticks(x, [f'Task {t}' for t in tasks], rotation=45)
+    plt.legend()
+    plt.tight_layout()
+
+    # Show the plot
+    plt.show()
+
 def networks_from_para(network_para, num_types):
     rt = []
     for para in network_para:
@@ -35,7 +84,7 @@ def networks_from_para(network_para, num_types):
         for net_set in networks.values():
             for net_data in net_set:
                 rt.append(FullNetwork(net_data['delay'], net_data['comm_speed'], net_data['speed'],
-                                                      net_data['device_constraints']))
+                                                      net_data['device_constraints'], net_data['device_frequencies'], net_data['device_voltages']))
     return rt
 
 def programs_from_para(prog_para, num_types):
@@ -150,6 +199,11 @@ def run_episodes(env,
                 if objective == 'cost':
                     last_latency = sum([G_stats.nodes[i]['comp_time'][0] for i in G_stats.nodes])\
                                    + sum([G_stats.edges[e]['comm_time'][0] for e in G_stats.edges])
+                elif objective == 'both':
+                    power_cost = sum([G_stats.nodes[i]['comp_time'][0] for i in G_stats.nodes])\
+                                   + sum([G_stats.edges[e]['comm_time'][0] for e in G_stats.edges])
+                    last_latency = power_cost + last_latency
+
                 new_episode = False
 
                 g = None
@@ -182,8 +236,9 @@ def run_episodes(env,
                 g.ndata['x'] = torch.nan_to_num(g.ndata['x'])
                 if sum(mask) == 0:
                     mask[cur_nodes[0]] = 1
-                s, action = agent.op_dev_selection(g, action_dict, mask)
+                s, action, action_frequency, action_voltage = agent.op_dev_selection(g, action_dict, mask)
                 last_action = [s, cur_mapping[s], action]
+
 
             else:
                 # pdb.set_trace()
@@ -193,12 +248,32 @@ def run_episodes(env,
                                                  constraints[s])
             cur_mapping[s] = action
             ep_data['actions'].append([s, action])
-
+            
+            # visualize frequency
+            tasks = list(range(len(cur_mapping)))
+            device_frequencies = [network.device_frequencies[device] for device in cur_mapping]
+            adjusted_frequencies = calculate_adjusted_frequencies(action_dict, cur_mapping)
+            device_voltages = [network.device_voltages[device] for device in cur_mapping]
+            adjusted_voltages = calculate_adjusted_voltages(action_dict, cur_mapping)
+            # plot_task_frequencies(tasks, device_frequencies, adjusted_frequencies)
+            # print(action_dict)
+            task_edges = program.P.edges
+            print(task_edges)
+            visualize_task_power_consumption(cur_mapping, device_frequencies, adjusted_frequencies, device_voltages, adjusted_voltages)
+            visualize_task_power_consumption_with_connectivity(cur_mapping, device_frequencies, adjusted_frequencies, device_voltages, adjusted_voltages, task_edges)
+            visualize_task_power_consumption_with_dag(program.P, cur_mapping, device_frequencies, adjusted_frequencies, device_voltages, adjusted_voltages, 20, 150, 20, 150, 'just', 30)
+            visualize_task_power_consumption_with_arrows_and_colorbar(program.P, cur_mapping, device_frequencies, adjusted_frequencies, device_voltages, adjusted_voltages, 20, 150, 20, 150, '', 30)
             latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise, ungrouped=ungrouped_map)
 
             if objective == 'cost':
                 latency = sum([G_stats.nodes[i]['comp_time'][0] for i in G_stats.nodes]) \
                                + sum([G_stats.edges[e]['comm_time'][0] for e in G_stats.edges])
+            
+            elif objective == 'both':
+                power_cost = sum([G_stats.nodes[i]['comp_time'][0] for i in G_stats.nodes]) \
+                               + sum([G_stats.edges[e]['comm_time'][0] for e in G_stats.edges])
+                latency = latency + power_cost
+
             reward = (last_latency - latency)
             last_latency = latency
 
@@ -318,7 +393,7 @@ class Experiment_on_data:
         if not hasattr(self.exp_cfg, 'objective'):
             setattr(self.exp_cfg, 'objective', 'slr')
 
-        if self.exp_cfg.objective != 'cost':
+        if self.exp_cfg.objective != 'cost' and self.exp_cfg.objective != 'both':
             self.exp_cfg.objective = 'slr'
 
 

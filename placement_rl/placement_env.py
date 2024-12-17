@@ -7,6 +7,7 @@ import torch.nn.functional as F
 
 from env.latency import *
 from placement_rl.memory_buffer import Buffer
+import copy
 
 
 class PlacementEnv:
@@ -83,12 +84,22 @@ class PlacementEnv:
 
     def random_mapping(self, program_id, network_id, seed=-1):
         constraints = self.get_placement_constraints(program_id, network_id)
+        network = self.networks[network_id]
+        program = self.programs[program_id]
+        constraints_copy = copy.deepcopy(constraints)
+
+        for n in program.P.nodes():
+            for d in constraints[n]:
+                if program.P.nodes[n]['h_frequency'] > network.device_frequencies[d] or program.P.nodes[n]['h_voltage'] > network.device_voltages[d]:
+                    constraints_copy[n].remove(d)
+                    
+
         if isinstance(seed, list):
             s = np.random.choice(seed)
             np.random.seed(s)
         elif isinstance(seed, int) and seed > -1:
             np.random.seed(seed)
-        mapping = [np.random.choice(constraints[i]) for i in range(self.programs[program_id].n_operators)]
+        mapping = [np.random.choice(constraints_copy[i]) for i in range(self.programs[program_id].n_operators)]
         return mapping
 
     @staticmethod
@@ -373,9 +384,22 @@ class PlacementEnv:
         for n in program.P.nodes():
             node_dict[n] = {}
             for d in self.placement_constraints[program_id][network_id][n]:
-                node_dict[n][d] = id
-                action_dict[id] = (n, d)
-                id += 1
+                if program.P.nodes[n]['h_frequency'] <= network.device_frequencies[d] and program.P.nodes[n]['h_voltage'] <= network.device_voltages[d]:
+                    if program.P.nodes[n]['h_frequency'] == network.device_frequencies[d]:
+                        frequency = program.P.nodes[n]['h_frequency']
+                    else:
+                        frequency = min(program.P.nodes[n]['h_frequency'] + 0.5, network.device_frequencies[d])
+                    
+                    if program.P.nodes[n]['h_voltage'] == network.device_voltages[d]:
+                        voltage = program.P.nodes[n]['h_voltage']
+                    else:
+                        voltage = min(program.P.nodes[n]['h_voltage'] + 0.5, network.device_voltages[d])
+
+                    node_dict[n][d] = id
+                    action_dict[id] = (n, d, frequency, voltage)
+                    id += 1
+                if node_dict[n] == {}:
+                    raise Exception('No device can support node ' + str(n))
 
         self.full_graph_node_dev_action_matrix[program_id][network_id] = torch.zeros((len(action_dict),
                                                                                       program.n_operators,
@@ -391,11 +415,11 @@ class PlacementEnv:
         comm = self.full_graph_full_edge_comm[program_id][network_id]
         comp = self.full_graph_full_node_comp[program_id][network_id]
         for i in range(len(action_dict)):
-            op1, dev1 = action_dict[i]
+            op1, dev1, freq1, vltg1 = action_dict[i]
             comp[i] = computation_latency(program, network, op1, dev1)
             for j in range(len(action_dict)):
                 if i != j:
-                    op2, dev2 = action_dict[j]
+                    op2, dev2, freq2, vltg2= action_dict[j]
                     comm[i, j] = communication_latency(program, network, op1, op2, dev1, dev2)
 
     def get_full_graph(self, program_id, network_id, mapping, G_stats, device, critical_path=None, bip_connection=False, last_g=None, last_action=None):

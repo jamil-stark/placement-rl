@@ -44,11 +44,12 @@ class StarNetwork:
 
 
 class FullNetwork:
-    def __init__(self, delay, comm_rate, speed, device_constraints: dict):
+    def __init__(self, delay, comm_rate, speed, device_constraints: dict, device_frequencies: dict, device_voltages: dict):
         self.n_devices = len(speed)
         self.comp_rate = 1 / torch.tensor(speed)
         self.comm_delay = torch.tensor(delay)
         self.comm_rate = torch.tensor(comm_rate)
         self.device_constraints = device_constraints
-
+        self.device_frequencies = device_frequencies
+        self.device_voltages = device_voltages
 
