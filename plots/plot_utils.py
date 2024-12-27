@@ -210,8 +210,16 @@ def plot_eval_performance_across_training_episodes(logdir, plot_best=True, title
         output_results = np.array([a[:, -1] for a in comb])
         average = np.average(output_results, axis=1)
         std = np.std(output_results, axis=1) / 20
+
+        policy_update_data_path = join(p, 'policy_update_data.txt')
+        if os.path.exists(policy_update_data_path):
+            with open(policy_update_data_path, 'r') as f:
+                policy_update_data = json.load(f)
+            num_of_updates = policy_update_data.get('num_of_updates', 'N/A')
+        else:
+            num_of_updates = 'N/A'
         ax.plot((np.arange(0, len(average)) + 1) * 5, average, marker=marker[k][0], color=marker[k][1],
-                linestyle=marker[k][2], label=name, ms=2)
+                linestyle=marker[k][2], label=f"{name} ({num_of_updates} updates)", ms=2)
         ax.fill_between((np.arange(0, len(average)) + 1) * 5, average + std, average - std, color=marker[k][1],
                         alpha=.1, edgecolor='none')
 
@@ -263,7 +271,17 @@ def plot_performance_slr_samples(logdir, ax, noise, plot_best=True, update=False
                 results = np.array(results)
                 average = np.mean(results, axis=0)
                 x = np.linspace(0, 2, num_x)
-                ax.plot(x, average, marker=marker[k][0], color=marker[k][1], linestyle=marker[k][2], label=name, ms=5)
+
+                # add number of updates
+                test_dir_parent_path = os.path.dirname(test_dir)
+                policy_update_data_path = join(test_dir_parent_path, 'policy_update_data.txt')
+                if os.path.exists(policy_update_data_path):
+                    with open(policy_update_data_path, 'r') as f:
+                        policy_update_data = json.load(f)
+                    num_of_updates = policy_update_data.get('num_of_updates', 'N/A')
+                else:
+                    num_of_updates = 'N/A'
+                ax.plot(x, average, marker=marker[k][0], color=marker[k][1], linestyle=marker[k][2], label=f"{name} ({num_of_updates} updates)", ms=5)
                 break
     # plot random sample baseline
     if not os.path.exists(join(logdir, 'test_random_samples.pk')) or update:

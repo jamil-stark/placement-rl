@@ -234,6 +234,7 @@ class Experiment_on_data:
     def __init__(self, exp_config):
         self.seed = exp_config.seed
         self.exp_cfg = exp_config
+        self.num_of_updates = 0
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if not exp_config.cuda:
             self.device = torch.device('cpu')
@@ -396,6 +397,7 @@ class Experiment_on_data:
                                         noise=self.exp_cfg.noise,
                                         objective=self.exp_cfg.objective,
                                         ungrouped=ungrouped)
+            self.num_of_updates +=1
             record.append(train_record)
             self.train_sequence.extend(zip(train_network_id, train_program_id, train_init_map))
             cnt += 1
@@ -441,6 +443,12 @@ class Experiment_on_data:
             'data_para': self.exp_cfg.data_parameters
         }
         json.dump(run_data, open(os.path.join(self.logdir, "run_data.txt"), "w"), indent=4)
+
+        policy_update_data = {
+            'num_of_updates': self.num_of_updates,
+            'data_para': self.exp_cfg.data_parameters
+        }
+        json.dump(policy_update_data, open(os.path.join(self.logdir, "policy_update_data.txt"), "w"), indent=4)
 
         torch.save(self.agent.policy.state_dict(),
                    os.path.join(self.logdir, f'policy_{len(self.train_sequence)}.pk'))
@@ -545,6 +553,7 @@ class Experiment_on_data:
                              save_name=f'tune_program_{program_id}_network_{network_id}_seed_{seed}',
                              noise=noise,
                              objective=self.exp_cfg.objective)
+                self.num_of_updates += 1
 
                 print(f"RUNNING {self.exp_cfg.num_testing_cases_repeat} testing episodes for network {network_id}/program {program_id} after tuned.")
                 run_episodes(self.eval_env, self.agent,
@@ -563,3 +572,10 @@ class Experiment_on_data:
                              save_name=f'test_program_{program_id}_network_{network_id}_seed_{seed}_tuned',
                              noise=noise,
                              objective=self.exp_cfg.objective)
+        
+        policy_update_data = {
+            'num_of_updates': self.num_of_updates,
+            'num_of_tune': num_of_tune,
+            'data_para': para
+        }
+        json.dump(policy_update_data, open(os.path.join(logdir, "policy_update_data.txt"), "w"), indent=4)
